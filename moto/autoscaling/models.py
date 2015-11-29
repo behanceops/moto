@@ -123,7 +123,6 @@ class FakeAutoScalingGroup(object):
                  min_size, launch_config_name, vpc_zone_identifier,
                  default_cooldown, health_check_period, health_check_type,
                  load_balancers, placement_group, termination_policies, autoscaling_backend, tags):
-                 autoscaling_backend, tags):
         self.autoscaling_backend = autoscaling_backend
         self.name = name
         self.availability_zones = availability_zones

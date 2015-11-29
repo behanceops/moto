@@ -1,8 +1,16 @@
 from __future__ import unicode_literals
+
+from collections import defaultdict
+
 from boto.ec2.blockdevicemapping import BlockDeviceType, BlockDeviceMapping
 from moto.core import BaseBackend
 from moto.ec2 import ec2_backends
+
 from moto.elb import elb_backends
+from moto.ec2.utils import (
+    get_prefix,
+    simple_aws_filter_to_re,
+)
 
 # http://docs.aws.amazon.com/AutoScaling/latest/DeveloperGuide/AS_Concepts.html#Cooldown
 DEFAULT_COOLDOWN = 300
@@ -114,7 +122,7 @@ class FakeAutoScalingGroup(object):
     def __init__(self, name, availability_zones, desired_capacity, max_size,
                  min_size, launch_config_name, vpc_zone_identifier,
                  default_cooldown, health_check_period, health_check_type,
-                 load_balancers, placement_group, termination_policies,
+                 load_balancers, placement_group, termination_policies, autoscaling_backend, tags):
                  autoscaling_backend, tags):
         self.autoscaling_backend = autoscaling_backend
         self.name = name
@@ -136,6 +144,8 @@ class FakeAutoScalingGroup(object):
         self.instance_states = []
         self.set_desired_capacity(desired_capacity)
         self.tags = tags if tags else []
+        for tag in tags:
+            self.add_tag(tag['key'], tag['value'])
 
     @classmethod
     def create_from_cloudformation_json(cls, resource_name, cloudformation_json, region_name):
@@ -215,10 +225,128 @@ class FakeAutoScalingGroup(object):
             self.autoscaling_backend.ec2_backend.terminate_instances(instance_ids_to_remove)
             self.instance_states = self.instance_states[count_to_remove:]
 
+    def get_tags(self, *args, **kwargs):
+        tags = self.autoscaling_backend.describe_tags(filters={'resource-id': [self.name]})
+        return tags
 
-class AutoScalingBackend(BaseBackend):
+    def add_tag(self, key, value):
+        self.autoscaling_backend.create_tags([self.name], {key: value})
+
+    def get_filter_value(self, filter_name):
+        tags = self.get_tags()
+
+        if filter_name.startswith('tag:'):
+            tagname = filter_name.replace('tag:', '', 1)
+            for tag in tags:
+                if tag['key'] == tagname:
+                    return tag['value']
+
+            return ''
+
+        if filter_name == 'tag-key':
+            return [tag['key'] for tag in tags]
+
+        if filter_name == 'tag-value':
+            return [tag['value'] for tag in tags]
+
+class ASGTagBackend(object):
+
+    VALID_TAG_FILTERS = ['key',
+                         'resource-id',
+                         'resource-type',
+                         'value']
+    def __init__(self):
+        self.tags = defaultdict(dict)
+        super(ASGTagBackend, self).__init__()
+
+    def create_tags(self, resource_ids, tags):
+        if None in set([tags[tag] for tag in tags]):
+            raise InvalidParameterValueErrorTagNull()
+        for resource_id in resource_ids:
+            if resource_id in self.tags:
+                if len(self.tags[resource_id]) + len(tags) > 10:
+                    raise TagLimitExceeded()
+            elif len(tags) > 10:
+                raise TagLimitExceeded()
+        for resource_id in resource_ids:
+            for tag in tags:
+                self.tags[resource_id][tag] = tags[tag]
+
+        return True
+
+    def delete_tags(self, resource_ids, tags):
+        for resource_id in resource_ids:
+            for tag in tags:
+                if tag in self.tags[resource_id]:
+                    if tags[tag] is None:
+                        self.tags[resource_id].pop(tag)
+                    elif tags[tag] == self.tags[resource_id][tag]:
+                        self.tags[resource_id].pop(tag)
+        return True
+
+    def describe_tags(self, filters=None):
+        import re
+        results = []
+        key_filters = []
+        resource_id_filters = []
+        value_filters = []
+        if filters is not None:
+            for tag_filter in filters:
+                if tag_filter in self.VALID_TAG_FILTERS:
+                    if tag_filter == 'key':
+                        for value in filters[tag_filter]:
+                            key_filters.append(re.compile(simple_aws_filter_to_re(value)))
+                    if tag_filter == 'resource-id':
+                        for value in filters[tag_filter]:
+                            resource_id_filters.append(re.compile(simple_aws_filter_to_re(value)))
+                    if tag_filter == 'value':
+                        for value in filters[tag_filter]:
+                            value_filters.append(re.compile(simple_aws_filter_to_re(value)))
+        for resource_id, tags in self.tags.items():
+            for key, value in tags.items():
+                add_result = False
+                if filters is None:
+                    add_result = True
+                else:
+                    key_pass = False
+                    id_pass = False
+                    value_pass = False
+                    if key_filters:
+                        for pattern in key_filters:
+                            if pattern.match(key) is not None:
+                                key_pass = True
+                    else:
+                        key_pass = True
+                    if resource_id_filters:
+                        for pattern in resource_id_filters:
+                            if pattern.match(resource_id) is not None:
+                                id_pass = True
+                    else:
+                        id_pass = True
+                    if value_filters:
+                        for pattern in value_filters:
+                            if pattern.match(value) is not None:
+                                value_pass = True
+                    else:
+                        value_pass = True
+                    if key_pass and id_pass and value_pass:
+                        add_result = True
+                        # If we're not filtering, or we are filtering and this
+                if add_result:
+                    result = {
+                        'resource_type': 'auto-scaling-group',
+                        'resource_id': resource_id,
+                        'key': key,
+                        'value': value,
+                    }
+                    results.append(result)
+        return results
+
+
+class AutoScalingBackend(BaseBackend, ASGTagBackend):
 
     def __init__(self, ec2_backend, elb_backend):
+        super(AutoScalingBackend, self).__init__()
         self.autoscaling_groups = {}
         self.launch_configurations = {}
         self.policies = {}
@@ -304,7 +432,7 @@ class AutoScalingBackend(BaseBackend):
                                  launch_config_name, vpc_zone_identifier,
                                  default_cooldown, health_check_period,
                                  health_check_type, load_balancers,
-                                 placement_group, termination_policies):
+                                 placement_group, termination_policies, tags):
         group = self.autoscaling_groups[name]
         group.update(availability_zones, desired_capacity, max_size,
                      min_size, launch_config_name, vpc_zone_identifier,

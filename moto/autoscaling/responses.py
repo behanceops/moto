@@ -71,6 +71,21 @@ class AutoScalingResponse(BaseResponse):
         template = self.response_template(DESCRIBE_AUTOSCALING_GROUPS_TEMPLATE)
         return template.render(groups=groups)
 
+    def describe_tags(self):
+        names = self._get_multi_param("AutoScalingGroupNames.member")
+        groups = self.autoscaling_backend.describe_autoscaling_groups(names)
+
+        tags = []
+
+        for group in groups:
+            tags.extend(group.get_tags())
+
+        print dir(tags)
+        print tags
+
+        template = self.response_template(DESCRIBE_TAGS_TEMPLATE)
+        return template.render(tags=tags)
+
     def update_auto_scaling_group(self):
         self.autoscaling_backend.update_autoscaling_group(
             name=self._get_param('AutoScalingGroupName'),
@@ -375,6 +390,25 @@ DESCRIBE_SCALING_POLICIES_TEMPLATE = """<DescribePoliciesResponse xmlns="http://
     <RequestId>ec3bffad-b739-11e2-b38d-15fbEXAMPLE</RequestId>
   </ResponseMetadata>
 </DescribePoliciesResponse>"""
+
+DESCRIBE_TAGS_TEMPLATE = """<DescribeTagsResponse xmlns="http://autoscaling.amazonaws.com/doc/2011-01-01/">
+  <DescribeTagsResult>
+    <Tags>
+      {% for tag in tags %}
+      <member>
+        <ResourceType>{{ tag.resource_type }}</ResourceType>
+        <ResourceId>{{ tag.resource_id }}</ResourceId>
+        <PropagateAtLaunch>true</PropagateAtLaunch>
+        <Value>{{ tag.value }}</Value>
+        <Key>{{ tag.key }}</Key>
+      </member>
+      {% endfor %}
+    </Tags>
+  </DescribeTagsResult>
+  <ResponseMetadata>
+    <RequestId>ec3bffad-b739-11e2-b38d-15fbEXAMPLE</RequestId>
+  </ResponseMetadata>
+</DescribeTagsResponse>"""
 
 SET_DESIRED_CAPACITY_TEMPLATE = """<SetDesiredCapacityResponse xmlns="http://autoscaling.amazonaws.com/doc/2011-01-01/">
   <ResponseMetadata>

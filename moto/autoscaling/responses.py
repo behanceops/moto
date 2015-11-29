@@ -80,9 +80,6 @@ class AutoScalingResponse(BaseResponse):
         for group in groups:
             tags.extend(group.get_tags())
 
-        print dir(tags)
-        print tags
-
         template = self.response_template(DESCRIBE_TAGS_TEMPLATE)
         return template.render(tags=tags)
 
@@ -101,6 +98,7 @@ class AutoScalingResponse(BaseResponse):
             load_balancers=self._get_multi_param('LoadBalancerNames.member'),
             placement_group=self._get_param('PlacementGroup'),
             termination_policies=self._get_multi_param('TerminationPolicies.member'),
+            tags=self._get_list_prefix('Tags.member'),
         )
         template = self.response_template(UPDATE_AUTOSCALING_GROUP_TEMPLATE)
         return template.render()

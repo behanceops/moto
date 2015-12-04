@@ -162,6 +162,7 @@ class BaseResponse(_TemplateEnvironmentMixin):
         raise NotImplementedError("The {0} action has not been implemented".format(action))
 
     def _get_param(self, param_name):
+        print self.querystring
         return self.querystring.get(param_name, [None])[0]
 
     def _get_int_param(self, param_name):

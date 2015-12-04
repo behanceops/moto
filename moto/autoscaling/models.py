@@ -284,6 +284,10 @@ class ASGTagBackend(object):
         return True
 
     def describe_tags(self, filters=None):
+
+        print 'HERERERER'
+        print filters
+
         import re
         results = []
         key_filters = []

@@ -110,6 +110,39 @@ def test_create_autoscaling_groups_defaults():
     list(group.termination_policies).should.equal([])
     list(group.tags).should.equal([])
 
+@mock_autoscaling
+def test_autoscaling_get_tags():
+    conn = boto.connect_autoscale()
+    config = LaunchConfiguration(
+        name='tester',
+        image_id='ami-abcd1234',
+        instance_type='t2.medium',
+    )
+    conn.create_launch_configuration(config)
+
+    group = AutoScalingGroup(
+        name='tester_group',
+        max_size=2,
+        min_size=2,
+        launch_config=config,
+        tags=[Tag(
+            resource_id='tester_group',
+            key='test_key',
+            value='test_value',
+            propagate_at_launch=True
+            )
+        ]
+    )
+    conn.create_auto_scaling_group(group)
+    group = conn.get_all_groups()[0]
+    group.name.should.equal('tester_group')
+
+    group.tags.should.have.length_of(1)
+    tag = list(group.tags)[0]
+    tag.resource_id.should.equal('tester_group')
+    tag.key.should.equal('test_key')
+    tag.value.should.equal('test_value')
+    tag.propagate_at_launch.should.equal(True)
 
 @mock_autoscaling
 def test_autoscaling_group_describe_filter():
@@ -126,6 +159,13 @@ def test_autoscaling_group_describe_filter():
         max_size=2,
         min_size=2,
         launch_config=config,
+        tags=[Tag(
+            resource_id='tester_group',
+            key='test_key',
+            value='test_value',
+            propagate_at_launch=True
+            )
+        ],
     )
     conn.create_auto_scaling_group(group)
     group.name = 'tester_group2'
@@ -136,6 +176,49 @@ def test_autoscaling_group_describe_filter():
     conn.get_all_groups(names=['tester_group', 'tester_group2']).should.have.length_of(2)
     conn.get_all_groups().should.have.length_of(3)
 
+@mock_autoscaling
+def test_autoscaling_group_get_all_tags():
+    conn = boto.connect_autoscale()
+    config = LaunchConfiguration(
+        name='tester',
+        image_id='ami-abcd1234',
+        instance_type='t2.medium',
+    )
+    conn.create_launch_configuration(config)
+
+    group1 = AutoScalingGroup(
+        name='tester_group1',
+        max_size=2,
+        min_size=2,
+        launch_config=config,
+        tags=[Tag(
+            resource_id='tester_group1',
+            key='test_key1',
+            value='test_value1',
+            propagate_at_launch=True
+            )
+        ],
+    )
+    conn.create_auto_scaling_group(group1)
+
+    group2 = AutoScalingGroup(
+        name='tester_group2',
+        max_size=2,
+        min_size=2,
+        launch_config=config,
+        tags=[Tag(
+            resource_id='tester_group2',
+            key='test_key2',
+            value='test_value2',
+            propagate_at_launch=True
+            )
+        ],
+    )
+    conn.create_auto_scaling_group(group2)
+
+    response = conn.get_all_tags(filters={'key': 'no_way'})
+    print response
+    response.should.have.length_of(0)
 
 @mock_autoscaling
 def test_autoscaling_update():

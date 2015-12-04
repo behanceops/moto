@@ -72,13 +72,12 @@ class AutoScalingResponse(BaseResponse):
         return template.render(groups=groups)
 
     def describe_tags(self):
-        names = self._get_multi_param("AutoScalingGroupNames.member")
-        groups = self.autoscaling_backend.describe_autoscaling_groups(names)
+        filters = self._get_param("Filters")
 
-        tags = []
+        print filters
+        tags = self.autoscaling_backend.describe_tags(filters)
 
-        for group in groups:
-            tags.extend(group.get_tags())
+        print tags
 
         template = self.response_template(DESCRIBE_TAGS_TEMPLATE)
         return template.render(tags=tags)
